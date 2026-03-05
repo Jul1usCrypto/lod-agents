@@ -107,7 +107,7 @@ class LoLProcess(object):
             # Run the GameServer
             return subprocess.Popen(args, cwd=run_config.cwd, env=run_config.env)
         except OSError:
-            logging.execution("Failed to launch")
+            logging.exception("Failed to launch")
             raise LoLLaunchError("Failed to launch: %s" % args)
     
     def __enter__(self):

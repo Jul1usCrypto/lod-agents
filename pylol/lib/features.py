@@ -302,10 +302,12 @@ class Features(object):
                 raise ValueError(
                     "Wrong number of values for argument of %s, got: %s" % (
                         func, func_call.arguments))
-            for s, a in zip(sizes, arg):
-                if not np.all(0 <= a) and np.all(a < s):
-                    raise ValueError("Argument is out of range for %s, got: %s" % (
-                        func, func_call.arguments))
+            # Skip range validation for position (game coords can be negative near spawns)
+            if t.name not in ("position",):
+                for s, a in zip(sizes, arg):
+                    if not np.all(0 <= a) and np.all(a < s):
+                        raise ValueError("Argument is out of range for %s, got: %s" % (
+                            func, func_call.arguments))
 
         # Convert them to python types
         kwargs = {type_.name: type_.fn(a)
@@ -329,15 +331,35 @@ class Features(object):
         # Get agents user id
         me_id = None
         enemy_id = None
-        me_unit = None
-        enemy_unit = None
-        for champ_unit in obs["observation"]["champ_units"]:
+        me_idx = 0
+        enemy_idx = 0
+        raw_units = obs["observation"]["champ_units"]
+        for i, champ_unit in enumerate(raw_units):
             if champ_unit["distance_to_me"] == 0.0:
                 me_id = champ_unit["user_id"]
-                me_unit = champ_unit
-            else:
-                enemy_id = champ_unit["user_id"]
-                enemy_unit = champ_unit
+                me_idx = i
+        # Find me_unit's team value
+        me_team = raw_units[me_idx]["my_team"] if me_id is not None else None
+        # Find closest ENEMY (different team, not me)
+        closest_dist = float('inf')
+        for i, champ_unit in enumerate(raw_units):
+            if champ_unit["distance_to_me"] != 0.0 and champ_unit["my_team"] != me_team:
+                if champ_unit["distance_to_me"] < closest_dist:
+                    closest_dist = champ_unit["distance_to_me"]
+                    enemy_id = champ_unit["user_id"]
+                    enemy_idx = i
+        # Fallback: if no enemy found, pick closest non-me unit
+        if enemy_id is None:
+            closest_dist = float('inf')
+            for i, champ_unit in enumerate(raw_units):
+                if champ_unit["distance_to_me"] != 0.0:
+                    if champ_unit["distance_to_me"] < closest_dist:
+                        closest_dist = champ_unit["distance_to_me"]
+                        enemy_id = champ_unit["user_id"]
+                        enemy_idx = i
+        if enemy_id is None and len(raw_units) > 1:
+            enemy_idx = 1 if me_idx == 0 else 0
+            enemy_id = raw_units[enemy_idx]["user_id"]
 
         # Observations of champion units in the game
         champ_units = [named_array.NamedNumpyArray([
@@ -377,14 +399,14 @@ class Features(object):
             champ_unit["r_level"],
             champ_unit["sum_1_cooldown"],
             champ_unit["sum_2_cooldown"],
-        ], names=ChampUnit, dtype=np.float32) for champ_unit in obs["observation"]["champ_units"]]
+        ], names=ChampUnit, dtype=np.float32) for champ_unit in raw_units]
 
         # Observation output
         out = named_array.NamedDict({
-            "my_id": float(me_id),
+            "my_id": float(me_id) if me_id is not None else 0.0,
             "game_time": float(obs["observation"]["game_time"]),
-            "me_unit": champ_units[0 if me_id == 1 else 1],
-            "enemy_unit": champ_units[0 if enemy_id == 1 else 1]
+            "me_unit": champ_units[me_idx],
+            "enemy_unit": champ_units[enemy_idx]
         })
 
         # Print original observation

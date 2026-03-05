@@ -19,7 +19,13 @@ from pylol.lib import actions
 
 
 class ChaseAndAttackAgent(base_agent.BaseAgent):
-    """A simple agent that moves toward the enemy and casts Q when in range."""
+    """A simple agent that moves toward the enemy and casts Q when in range.
+    
+    Action format:
+        no_op:  FunctionCall(0, [])
+        move:   FunctionCall(1, [[dx, dy]])         — move_range point (0-7, center=4)
+        spell:  FunctionCall(2, [[slot], [x, y]])   — spell enum + absolute map position
+    """
 
     def step(self, obs):
         super().step(obs)
@@ -40,9 +46,19 @@ class ChaseAndAttackAgent(base_agent.BaseAgent):
             print(f"[Agent {me['user_id']}] Casting Q at enemy! (dist: {dist:.0f})")
             return actions.FunctionCall(2, [[0], enemy_pos])
         else:
-            # Too far — move toward enemy
-            print(f"[Agent {me['user_id']}] Moving toward enemy (dist: {dist:.0f})")
-            return actions.FunctionCall(1, [[0], enemy_pos])
+            # Too far — move toward enemy using relative move_range
+            # move_range is [0..7] where 4 = center (no move)
+            # Map direction to a point in [0,7] grid
+            import math
+            length = max(dist, 1)
+            norm_dx = dx / length
+            norm_dy = dy / length
+            move_x = int(4 + norm_dx * 3)  # 4 = center, ±3 max offset
+            move_y = int(4 + norm_dy * 3)
+            move_x = max(0, min(7, move_x))
+            move_y = max(0, min(7, move_y))
+            print(f"[Agent {me['user_id']}] Moving toward enemy (dist: {dist:.0f}) -> [{move_x},{move_y}]")
+            return actions.FunctionCall(1, [[move_x, move_y]])
 
 
 def main():
@@ -84,7 +100,7 @@ def main():
             feature_map=feature_map_size,
             feature_move_range=feature_move_range
         ),
-        human_observer=False,
+        human_observer=True,
         cooldowns_enabled=False,
         config_path=config_path
     ) as env:

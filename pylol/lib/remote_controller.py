@@ -78,8 +78,9 @@ class RemoteController(object):
         print("REDIS PORT:", self._kwargs["redis_port"])
 
         try:
+            redis_host = "127.0.0.1" if str(host) in ("localhost", "127.0.0.1") else str(host)
             arr = ["redis-server",
-                "--bind", str(host),
+                "--bind", redis_host,
                 "--port", str(self._kwargs["redis_port"])]
             print("REDIS ARGS:", arr)
             self._proc = subprocess.Popen(arr)
@@ -116,9 +117,18 @@ class RemoteController(object):
                 raise ConnectionError("Couldn't get `clients_join` message from GameServer")
         
         # Wait until agents can connect (dependend on how long client takes to load, timing issue...)
-        json_txt = self.r.brpop("observation", 60)
+        print("Waiting for `game_started` (up to 120s for client to load)...")
+        if self._client:
+            import time
+            time.sleep(2)
+            poll = self._client.poll()
+            print(f"Client process status: {'running' if poll is None else f'exited with code {poll}'}")
+        json_txt = self.r.brpop("observation", 120)
         if json_txt == None:
             print("`game_started` == NONE")
+            if self._client:
+                poll = self._client.poll()
+                print(f"Client process final status: {'running' if poll is None else f'exited with code {poll}'}")
             raise ConnectionError("Couldn't get `game_started` message from GameServer")
         else:
             command = json.loads(json_txt[1].decode("utf-8"))
@@ -160,16 +170,17 @@ class RemoteController(object):
 
             # self.players_reset()
 
-        # Get the observation
-        json_txt = self.r.brpop("observation", self.timeout)
+        # Get the observation (use shorter timeout for multi-agent)
+        json_txt = self.r.brpop("observation", min(self.timeout, 5))
         if json_txt == None:
             print("Error: Observation timed out")
-            return None
+            return self._last_obs  # Reuse last valid observation instead of None
         else:
             obs = json.loads(json_txt[1].decode("utf-8"))
             
-            # Print first observation for testing...
-            # if self._last_obs == None: print("FIRST OBSERVATION:", obs)
+            # Handle null observations from server error fallback
+            if obs is None or obs == "null":
+                return self._last_obs
             
             self._last_obs = obs
             return obs
@@ -319,15 +330,24 @@ def start_client(host="192.168.0.16", port="5119", client_dir="", playerId="1"):
     # client_path = "/mnt/c/LeagueSandbox/League_Sandbox_Client/RADS/solutions/lol_game_client_sln/releases/0.0.1.68/deploy/"
     print("LOL CLIENT HOST, PORT, CLIENT_PATH:", host, port, client_dir)
     LeagueOfLegendsClient = None
-    LeagueOfLegendsClientArgs = [
-        #"wine",
-        "./League of Legends.exe",
-        "8394",
-        "",
-        "",
-        "{0} {1} 17BLOhi6KZsTtldTsizvHg== {2}".format(host, port, playerId)
-    ]
+    import os
+    exe_path = os.path.join(client_dir, "League of Legends.exe")
+    # Use 127.0.0.1 instead of localhost for the client connection
+    client_host = "127.0.0.1" if str(host) in ("localhost", "127.0.0.1") else str(host)
     if platform.system() == "Linux":
-        LeagueOfLegendsClientArgs.insert(0, "wine")
-    LeagueOfLegendsClient = subprocess.Popen(LeagueOfLegendsClientArgs, cwd=client_dir)
+        LeagueOfLegendsClientArgs = [
+            "wine",
+            "./League of Legends.exe",
+            "8394",
+            "LoLLauncher.exe",
+            "",
+            "{0} {1} 17BLOhi6KZsTtldTsizvHg== {2}".format(client_host, port, playerId)
+        ]
+        LeagueOfLegendsClient = subprocess.Popen(LeagueOfLegendsClientArgs, cwd=client_dir)
+    else:
+        # On Windows, use shell command matching Launch.bat format
+        cmd = '"{exe}" "8394" "LoLLauncher.exe" "" "{host} {port} 17BLOhi6KZsTtldTsizvHg== {pid}"'.format(
+            exe=exe_path, host=client_host, port=port, pid=playerId)
+        print("CLIENT CMD:", cmd)
+        LeagueOfLegendsClient = subprocess.Popen(cmd, cwd=client_dir)
     return LeagueOfLegendsClient

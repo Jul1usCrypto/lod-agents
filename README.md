@@ -39,10 +39,12 @@ Built on top of the [pylol](https://github.com/MiscellaneousStuff/pylol) reinfor
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.8+ (tested with 3.14)
 - .NET SDK 8.0
-- Redis server
-- Windows 10/11 (or Linux with Wine for the game client)
+- Redis server (Windows: [Redis 3.0.504](https://github.com/microsoftarchive/redis/releases))
+- Windows 10/11
+
+> **5v5 tested:** 10 agents, 1000 steps, 2.8 fps, all agents receiving valid rewards.
 
 ### 1. Clone the repository
 
@@ -79,7 +81,8 @@ You should see two Ezreal champions spawning on Summoner's Rift — one controll
 
 | Example | Description |
 |---------|-------------|
-| `examples/my_first_agent.py` | Minimal agent — attack the nearest enemy |
+| `examples/my_first_agent.py` | Minimal 1v1 agent — attack the nearest enemy |
+| `examples/simulation.py` | **5v5 team fight** — 10 AI agents brawling mid-lane |
 | `examples/scripted_agent.py` | Rule-based agent with ability usage |
 | `examples/random_agent.py` | Random actions from the action space |
 | `examples/train_ppo.py` | Train a PPO agent using stable-baselines3 |
@@ -124,8 +127,9 @@ from pylol.lib import actions
 # No operation (do nothing)
 return actions.FunctionCall(0, [[0]])
 
-# Move to position [x, y]
-return actions.FunctionCall(1, [[0], [x, y]])
+# Move in direction [dx, dy] — grid 0-7, center=4
+# e.g. [6, 4] = move right, [4, 6] = move down
+return actions.FunctionCall(1, [[dx, dy]])
 
 # Cast spell at position [x, y]
 # spell_slot: 0=Q, 1=W, 2=E, 3=R
@@ -154,8 +158,10 @@ class MyAgent(base_agent.BaseAgent):
             # Close enough — cast Q at enemy
             return actions.FunctionCall(2, [[0], [enemy["position_x"], enemy["position_y"]]])
         else:
-            # Move toward enemy
-            return actions.FunctionCall(1, [[0], [enemy["position_x"], enemy["position_y"]]])
+            # Move toward enemy (dx/dy grid: 0-7, center=4)
+            move_x = int(4 + (dx / dist) * 3)
+            move_y = int(4 + (dy / dist) * 3)
+            return actions.FunctionCall(1, [[max(0, min(7, move_x)), max(0, min(7, move_y))]])
 ```
 
 ## Configuration
@@ -164,7 +170,7 @@ Create a `config_dirs.txt` pointing to your game server build:
 
 ```ini
 [dirs]
-gameserver = ./GameServer/GameServerConsole/bin/Debug/net8.0/
+gameserver = C:\path\to\lod-agents\GameServer\publish-x86\
 lolclient =
 ```
 

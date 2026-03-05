@@ -22,6 +22,7 @@
 """Helper functions for lib modules which don't belong anywhere else."""
 
 import json
+import os
 
 from pylol.env import lol_env
 
@@ -30,12 +31,18 @@ def write_config(config_path, players, map_name, cooldowns_enabled, manacosts_en
     players = [lol_env.LoLEnvSettingsPlayer(i+1, i+1, player.champ, player.team)
                for i, player in enumerate(players)]
 
+    # Compute absolute Content path from Settings dir
+    content_path = os.path.abspath(os.path.join(config_path, "..", "Content"))
+    if not os.path.isdir(content_path):
+        content_path = "../../../../Content"  # fallback to original relative path
+
     settings = lol_env.LoLEnvSettings(players,
         game = lol_env.LoLEnvSettingsGame(map=lol_env.MAP[map_name]),
         gameInfo = lol_env.LoLEnvSettingsGameInfo(
             cooldowns_enabled=cooldowns_enabled,
             manacosts_enabled=manacosts_enabled,
-            minion_spawns_enabled=minion_spawns_enabled))
+            minion_spawns_enabled=minion_spawns_enabled,
+            content_path=content_path))
 
     settings = json.dumps(settings, indent=4)
 
